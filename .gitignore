@@ -74,3 +74,4 @@ scripts/ddns-cloudflare.sh
 .sisyphus/
 .beads/
 .mnhat/
+data/csv_analytics/
