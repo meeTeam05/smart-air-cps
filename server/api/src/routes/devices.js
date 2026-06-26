@@ -197,7 +197,7 @@ export default async function devicesRoutes(fastify) {
             return reply.code(400).send({ error: 'limit and offset must be non-negative integers' });
         }
         const { rows } = await fastify.db.query(
-            `SELECT d.id, d.name, d.home_id, d.room_id, d.online, d.last_seen, d.firmware_ver, d.created_at,
+            `SELECT d.id, d.name, d.home_id, d.room_id, d.online, d.last_seen, d.firmware_ver, d.created_at, d.auto_mode,
                     s.reported->>'mode' AS mode,
                     CASE
                         WHEN lower(s.reported->>'relay_1') IN ('true', 'false')
@@ -314,6 +314,28 @@ export default async function devicesRoutes(fastify) {
                room_id = CASE WHEN $3 THEN $4 ELSE room_id END
              WHERE id = $5 RETURNING id, name, home_id, room_id, online, last_seen, firmware_ver, created_at`,
             [name !== undefined, cleanName ?? null, roomProvided, roomId, deviceId]
+        );
+        if (rows.length === 0) return reply.code(404).send({ error: 'Not found' });
+        return rows[0];
+    });
+
+    // PUT /api/devices/:id/auto_mode
+    fastify.put('/devices/:id/auto_mode', auth, async (request, reply) => {
+        const userId = request.user.sub;
+        const deviceId = normalizeDeviceId(request.params.id);
+        if (!deviceId) return reply.code(400).send({ error: 'Invalid device ID' });
+
+        const allowed = await checkDeviceAccess(fastify, deviceId, userId);
+        if (!allowed) return reply.code(403).send({ error: 'Forbidden' });
+
+        const { auto_mode } = request.body ?? {};
+        if (typeof auto_mode !== 'boolean') {
+            return reply.code(400).send({ error: 'auto_mode must be boolean' });
+        }
+
+        const { rows } = await fastify.db.query(
+            'UPDATE devices SET auto_mode = $1 WHERE id = $2 RETURNING id, auto_mode',
+            [auto_mode, deviceId]
         );
         if (rows.length === 0) return reply.code(404).send({ error: 'Not found' });
         return rows[0];

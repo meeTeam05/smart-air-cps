@@ -1,0 +1,199 @@
+name: smart-air
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # Reverse proxy — public entry point via Cloudflare Tunnel
+  nginx:
+    ports:
+    - "8081:80"
+    - "8444:443"
+    image: nginx:alpine
+    container_name: sa-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./emqx/certs:/etc/nginx/certs:ro # reuse EMQX self-signed cert
+      - ./ota-files:/var/www/ota:ro # firmware binaries drop zone
+    depends_on:
+      api:     { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+
+  # MQTT broker
+  emqx:
+    image: emqx/emqx:latest
+    container_name: sa-emqx
+    ports:
+      - "${MQTT_LAN_BIND_IP:-0.0.0.0}:8883:8883" # Optional direct MQTT/TLS path; public default is WSS via nginx + Cloudflare Tunnel
+      - "127.0.0.1:18083:18083"     # dashboard — localhost only
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?EMQX_DASHBOARD_PASSWORD is required}
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:?EMQX_NODE_COOKIE is required}
+    volumes:
+      - emqx-data:/opt/emqx/data
+      - emqx-log:/opt/emqx/log
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/api-key.bootstrap:/opt/emqx/etc/api-key.bootstrap:ro
+      - ./emqx/certs:/opt/emqx/etc/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "emqx ctl status | grep started"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # API — Fastify service
+  api:
+    build:
+      context: ./api
+    image: smart-air-api:local
+    container_name: sa-api
+    volumes:
+      - ./db:/db:ro
+      - ./ota-files:/ota-files:ro
+    env_file: .env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 512m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # Database — TimescaleDB (PostgreSQL + time-series)
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: sa-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartair}
+      POSTGRES_USER: ${POSTGRES_USER:-smartair}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartair}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 1g
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # Cache + command queue
+  redis:
+    image: redis:7-alpine
+    container_name: sa-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required} --save 60 1 --loglevel warning
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./redis/data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # pgAdmin — database management UI
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: sa-pgadmin
+    profiles: ["admin"]
+    ports:
+      - "127.0.0.1:5050:80"         # localhost only
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:?PGADMIN_EMAIL is required}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - ./pgadmin/data:/var/lib/pgadmin
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/misc/ping || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # Portainer — Docker management UI
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: sa-portainer
+    profiles: ["admin"]
+    ports:
+      - "127.0.0.1:9000:9000"       # localhost only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer/data:/data
+    mem_limit: 256m
+    logging: *default-logging
+    networks:
+      - sa-net
+
+  # Cloudflare Tunnel — public ingress
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sa-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      nginx: { condition: service_healthy }
+    mem_limit: 128m
+    logging: *default-logging
+    networks:
+      - sa-net
+  ai-service:
+    build:
+      context: ./ai-service
+    container_name: sa-ai-service
+    environment:
+      SERVER_API: http://api:3000/api
+      AI_EMAIL: ${AI_EMAIL}
+      AI_PASSWORD: ${AI_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8000:8000"
+    networks:
+      - sa-net
+volumes:
+  emqx-data:
+  emqx-log:
+
+networks:
+  sa-net:
+    driver: bridge

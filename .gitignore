@@ -64,8 +64,11 @@ server/api/node_modules/
 *.db
 .beads-credential-key
 
-# Claude
+# AI Assistant files
+.agents/
+.codex/
 .claude/
+AGENTS.md
 CLAUDE.md
 
 # Others

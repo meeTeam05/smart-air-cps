@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS ai_baselines (
+    device_id TEXT PRIMARY KEY
+        REFERENCES devices(id)
+        ON DELETE CASCADE,
+
+    temp_base DOUBLE PRECISION NOT NULL,
+    hum_base DOUBLE PRECISION NOT NULL,
+    co_base DOUBLE PRECISION NOT NULL,
+    no2_base DOUBLE PRECISION NOT NULL,
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

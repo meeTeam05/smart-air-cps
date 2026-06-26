@@ -20,6 +20,7 @@ _$DeviceImpl _$$DeviceImplFromJson(Map<String, dynamic> json) => _$DeviceImpl(
       relay1: json['relay_1'] as bool?,
       relay2: json['relay_2'] as bool?,
       relay3: json['relay_3'] as bool?,
+      autoMode: json['auto_mode'] as bool? ?? false,
       createdAt: json['created_at'] == null
           ? null
           : DateTime.parse(json['created_at'] as String),
@@ -38,6 +39,7 @@ Map<String, dynamic> _$$DeviceImplToJson(_$DeviceImpl instance) =>
       'relay_1': instance.relay1,
       'relay_2': instance.relay2,
       'relay_3': instance.relay3,
+      'auto_mode': instance.autoMode,
       'created_at': instance.createdAt?.toIso8601String(),
     };
 

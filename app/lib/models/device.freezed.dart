@@ -38,6 +38,8 @@ mixin _$Device {
   bool? get relay2 => throw _privateConstructorUsedError;
   @JsonKey(name: 'relay_3')
   bool? get relay3 => throw _privateConstructorUsedError;
+  @JsonKey(name: 'auto_mode')
+  bool get autoMode => throw _privateConstructorUsedError;
   @JsonKey(name: 'created_at')
   DateTime? get createdAt => throw _privateConstructorUsedError;
 
@@ -67,6 +69,7 @@ abstract class $DeviceCopyWith<$Res> {
       @JsonKey(name: 'relay_1') bool? relay1,
       @JsonKey(name: 'relay_2') bool? relay2,
       @JsonKey(name: 'relay_3') bool? relay3,
+      @JsonKey(name: 'auto_mode') bool autoMode,
       @JsonKey(name: 'created_at') DateTime? createdAt});
 }
 
@@ -96,6 +99,7 @@ class _$DeviceCopyWithImpl<$Res, $Val extends Device>
     Object? relay1 = freezed,
     Object? relay2 = freezed,
     Object? relay3 = freezed,
+    Object? autoMode = null,
     Object? createdAt = freezed,
   }) {
     return _then(_value.copyWith(
@@ -143,6 +147,10 @@ class _$DeviceCopyWithImpl<$Res, $Val extends Device>
           ? _value.relay3
           : relay3 // ignore: cast_nullable_to_non_nullable
               as bool?,
+      autoMode: null == autoMode
+          ? _value.autoMode
+          : autoMode // ignore: cast_nullable_to_non_nullable
+              as bool,
       createdAt: freezed == createdAt
           ? _value.createdAt
           : createdAt // ignore: cast_nullable_to_non_nullable
@@ -170,6 +178,7 @@ abstract class _$$DeviceImplCopyWith<$Res> implements $DeviceCopyWith<$Res> {
       @JsonKey(name: 'relay_1') bool? relay1,
       @JsonKey(name: 'relay_2') bool? relay2,
       @JsonKey(name: 'relay_3') bool? relay3,
+      @JsonKey(name: 'auto_mode') bool autoMode,
       @JsonKey(name: 'created_at') DateTime? createdAt});
 }
 
@@ -197,6 +206,7 @@ class __$$DeviceImplCopyWithImpl<$Res>
     Object? relay1 = freezed,
     Object? relay2 = freezed,
     Object? relay3 = freezed,
+    Object? autoMode = null,
     Object? createdAt = freezed,
   }) {
     return _then(_$DeviceImpl(
@@ -244,6 +254,10 @@ class __$$DeviceImplCopyWithImpl<$Res>
           ? _value.relay3
           : relay3 // ignore: cast_nullable_to_non_nullable
               as bool?,
+      autoMode: null == autoMode
+          ? _value.autoMode
+          : autoMode // ignore: cast_nullable_to_non_nullable
+              as bool,
       createdAt: freezed == createdAt
           ? _value.createdAt
           : createdAt // ignore: cast_nullable_to_non_nullable
@@ -267,6 +281,7 @@ class _$DeviceImpl implements _Device {
       @JsonKey(name: 'relay_1') this.relay1,
       @JsonKey(name: 'relay_2') this.relay2,
       @JsonKey(name: 'relay_3') this.relay3,
+      @JsonKey(name: 'auto_mode') this.autoMode = false,
       @JsonKey(name: 'created_at') this.createdAt});
 
   factory _$DeviceImpl.fromJson(Map<String, dynamic> json) =>
@@ -303,12 +318,15 @@ class _$DeviceImpl implements _Device {
   @JsonKey(name: 'relay_3')
   final bool? relay3;
   @override
+  @JsonKey(name: 'auto_mode')
+  final bool autoMode;
+  @override
   @JsonKey(name: 'created_at')
   final DateTime? createdAt;
 
   @override
   String toString() {
-    return 'Device(id: $id, name: $name, homeId: $homeId, roomId: $roomId, online: $online, lastSeen: $lastSeen, firmwareVer: $firmwareVer, mode: $mode, relay1: $relay1, relay2: $relay2, relay3: $relay3, createdAt: $createdAt)';
+    return 'Device(id: $id, name: $name, homeId: $homeId, roomId: $roomId, online: $online, lastSeen: $lastSeen, firmwareVer: $firmwareVer, mode: $mode, relay1: $relay1, relay2: $relay2, relay3: $relay3, autoMode: $autoMode, createdAt: $createdAt)';
   }
 
   @override
@@ -329,6 +347,8 @@ class _$DeviceImpl implements _Device {
             (identical(other.relay1, relay1) || other.relay1 == relay1) &&
             (identical(other.relay2, relay2) || other.relay2 == relay2) &&
             (identical(other.relay3, relay3) || other.relay3 == relay3) &&
+            (identical(other.autoMode, autoMode) ||
+                other.autoMode == autoMode) &&
             (identical(other.createdAt, createdAt) ||
                 other.createdAt == createdAt));
   }
@@ -336,7 +356,7 @@ class _$DeviceImpl implements _Device {
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
   int get hashCode => Object.hash(runtimeType, id, name, homeId, roomId, online,
-      lastSeen, firmwareVer, mode, relay1, relay2, relay3, createdAt);
+      lastSeen, firmwareVer, mode, relay1, relay2, relay3, autoMode, createdAt);
 
   /// Create a copy of Device
   /// with the given fields replaced by the non-null parameter values.
@@ -367,6 +387,7 @@ abstract class _Device implements Device {
       @JsonKey(name: 'relay_1') final bool? relay1,
       @JsonKey(name: 'relay_2') final bool? relay2,
       @JsonKey(name: 'relay_3') final bool? relay3,
+      @JsonKey(name: 'auto_mode') final bool autoMode,
       @JsonKey(name: 'created_at') final DateTime? createdAt}) = _$DeviceImpl;
 
   factory _Device.fromJson(Map<String, dynamic> json) = _$DeviceImpl.fromJson;
@@ -400,6 +421,9 @@ abstract class _Device implements Device {
   @override
   @JsonKey(name: 'relay_3')
   bool? get relay3;
+  @override
+  @JsonKey(name: 'auto_mode')
+  bool get autoMode;
   @override
   @JsonKey(name: 'created_at')
   DateTime? get createdAt;

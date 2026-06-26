@@ -17,6 +17,7 @@ class Device with _$Device {
     @JsonKey(name: 'relay_1') bool? relay1,
     @JsonKey(name: 'relay_2') bool? relay2,
     @JsonKey(name: 'relay_3') bool? relay3,
+    @JsonKey(name: 'auto_mode') @Default(false) bool autoMode,
     @JsonKey(name: 'created_at') DateTime? createdAt,
   }) = _Device;
 

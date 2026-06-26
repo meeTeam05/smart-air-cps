@@ -354,6 +354,18 @@ class DeviceService {
     }
   }
 
+  Future<void> setAutoMode(String deviceId, bool autoMode) async {
+    try {
+      final normalizedDeviceId = _normalizeDeviceId(deviceId);
+      await _dio.put(
+        '/devices/$normalizedDeviceId/auto_mode',
+        data: {'auto_mode': autoMode},
+      );
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<List<Command>> getCommands(String deviceId,
       {int limit = 50, int offset = 0}) async {
     try {

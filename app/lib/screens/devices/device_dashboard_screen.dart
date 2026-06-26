@@ -63,6 +63,7 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
   bool _modeLoading = false;
   final Map<int, bool> _relayLoading = {};
   bool _refreshing = false;
+  bool _autoModeLoading = false;
   _PendingControlAction? _pendingModeAction;
   final Map<int, _PendingControlAction> _pendingRelayActions = {};
 
@@ -95,6 +96,7 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
     final relay1 = reported['relay_1'] as bool? ?? false;
     final relay2 = reported['relay_2'] as bool? ?? false;
     final relay3 = reported['relay_3'] as bool? ?? false;
+    final autoMode = device?.autoMode ?? false;
 
     final telemetryLiveAsync =
         ref.watch(telemetryLiveProvider(widget.deviceId));
@@ -289,22 +291,22 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
                     channel: 1,
                     name: 'Fan',
                     on: relay1,
-                    disabled: !isOn || _relayLoading[1] == true,
-                    onTap: () => _handleRelayToggle(1, relay1, isOn),
+                    disabled: !isOn || autoMode || _relayLoading[1] == true,
+                    onTap: () => _handleRelayToggle(1, relay1, isOn, autoMode),
                   ),
                   RelayCard(
                     channel: 2,
                     name: 'Lamp',
                     on: relay2,
-                    disabled: !isOn || _relayLoading[2] == true,
-                    onTap: () => _handleRelayToggle(2, relay2, isOn),
+                    disabled: !isOn || autoMode || _relayLoading[2] == true,
+                    onTap: () => _handleRelayToggle(2, relay2, isOn, autoMode),
                   ),
                   RelayCard(
                     channel: 3,
                     name: 'Filter',
                     on: relay3,
-                    disabled: !isOn || _relayLoading[3] == true,
-                    onTap: () => _handleRelayToggle(3, relay3, isOn),
+                    disabled: !isOn || autoMode || _relayLoading[3] == true,
+                    onTap: () => _handleRelayToggle(3, relay3, isOn, autoMode),
                   ),
                 ];
 
@@ -359,18 +361,30 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: AtmosphereTokens.space8,
-                            runSpacing: AtmosphereTokens.space4,
+                          Row(
                             children: [
                               Text(
                                 'Relays',
                                 style: AtmosphereTextStyles.h2(c.ink),
                               ),
+                              const SizedBox(width: AtmosphereTokens.space8),
                               Text(
                                 '· 3 channels',
                                 style: AtmosphereTextStyles.caption(c.ink3),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'AUTO',
+                                style: AtmosphereTextStyles.caption(
+                                  autoMode ? c.brand : c.ink3,
+                                ),
+                              ),
+                              const SizedBox(width: AtmosphereTokens.space8),
+                              Switch(
+                                value: autoMode,
+                                onChanged: _autoModeLoading || !isOn
+                                    ? null
+                                    : (value) => _handleAutoModeToggle(value),
                               ),
                             ],
                           ),
@@ -743,8 +757,35 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
     }
   }
 
+  Future<void> _handleAutoModeToggle(bool value) async {
+    setState(() => _autoModeLoading = true);
+    try {
+      await ref.read(deviceServiceProvider).setAutoMode(widget.deviceId, value);
+      ref.invalidate(devicesProvider);
+    } catch (e) {
+      if (mounted) {
+        _showCommandFailureSnackBar('Failed to change auto mode: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _autoModeLoading = false);
+    }
+  }
+
   Future<void> _handleRelayToggle(
-      int channel, bool currentState, bool deviceOn) async {
+      int channel, bool currentState, bool deviceOn, bool autoMode) async {
+    if (autoMode) {
+      final c = context.colors;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Auto mode is active. Turn off Auto to control manually.',
+          ),
+          backgroundColor: c.warn,
+        ),
+      );
+      return;
+    }
+
     if (!deviceOn) {
       final c = context.colors;
       ScaffoldMessenger.of(context).showSnackBar(
