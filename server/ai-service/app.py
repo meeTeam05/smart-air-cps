@@ -198,6 +198,11 @@ def run_prediction(device_id, sensor):
     features = baseline.make_feature_vector(clean_sensor)
     X = pd.DataFrame([features], columns=FEATURE_COLS)
     class_id = int(model.predict(X)[0])
+
+    # Model v3 overweights no2_ppm — override to class 2 when cooling signal is clear
+    if class_id == 0 and features["delta_temp"] >= 8 and clean_sensor["co_ppm"] < 35 and clean_sensor["no2_ppm"] < 100:
+        class_id = 2
+
     try:
         result = decode_class(class_id)
     except (KeyError, ValueError):
