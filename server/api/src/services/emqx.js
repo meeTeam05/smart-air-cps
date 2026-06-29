@@ -119,6 +119,22 @@ export async function ensureBridgeUser() {
     await clearAuthorizationCache();
 }
 
+export async function ensureAiUser() {
+    const username = config.ai.mqttUser;
+    const password = config.ai.mqttPassword;
+    if (!password) return; // AI service not configured, skip silently
+    const aiRules = [
+        { topic: 'device/+/telemetry', action: 'subscribe', permission: 'allow' },
+        { topic: 'device/+/command',   action: 'publish',   permission: 'allow' },
+    ];
+    const userRes = await createAuthUser(username, password);
+    if (userRes.status === 409) {
+        await updateAuthUser(username, password);
+    }
+    await upsertUserRules(username, aiRules);
+    await clearAuthorizationCache();
+}
+
 export async function checkEmqxApiHealth(requestId = null) {
     await emqxFetch('/status', 'GET', undefined, { requestId });
 }

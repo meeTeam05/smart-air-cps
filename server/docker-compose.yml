@@ -117,6 +117,34 @@ services:
     networks:
       - sa-net
 
+  # AI service — air quality prediction and auto relay control
+  ai:
+    build:
+      context: ./ai-service
+    image: smart-air-ai:local
+    container_name: sa-ai
+    env_file: .env
+    environment:
+      SERVER_API: http://api:3000/api
+      MQTT_BROKER: emqx
+      MQTT_PORT: "1883"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    depends_on:
+      api:      { condition: service_healthy }
+      emqx:     { condition: service_healthy }
+      postgres:  { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    logging: *default-logging
+    networks:
+      - sa-net
+
   # pgAdmin — database management UI
   pgadmin:
     image: dpage/pgadmin4:8

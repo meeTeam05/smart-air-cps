@@ -2,18 +2,16 @@ from fastapi import FastAPI
 import joblib
 import pandas as pd
 import paho.mqtt.client as mqtt
-import requests
 import threading
 import time
 import os
+import uuid
+import json
 import psycopg2
 from network import FEATURE_COLS, decode_class
 from calib_baseline import BaselineManager
 
 
-SERVER_API = os.getenv("SERVER_API", "http://api:3000/api")
-AI_EMAIL = os.getenv("AI_EMAIL")
-AI_PASSWORD = os.getenv("AI_PASSWORD")
 MQTT_BROKER = os.getenv("MQTT_BROKER", "emqx")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME")
@@ -24,14 +22,10 @@ PG_DB = os.getenv("POSTGRES_DB", "smartair")
 PG_USER = os.getenv("POSTGRES_USER", "smartair")
 PG_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
-if not AI_EMAIL or not AI_PASSWORD:
-    raise RuntimeError("Missing AI_EMAIL or AI_PASSWORD")
 if not MQTT_USERNAME or not MQTT_PASSWORD:
     raise RuntimeError("Missing MQTT_USERNAME or MQTT_PASSWORD")
 
 CONFIRM_REQUIRED = 3
-# Cache device list for auto_mode lookups; refresh every 30s to pick up changes.
-_DEVICES_CACHE_TTL = 30
 
 warning_count_by_device = {}
 last_control_by_device = {}
@@ -40,110 +34,63 @@ last_ts_by_device = {}
 
 _baselines_lock = threading.Lock()
 _state_lock = threading.Lock()
-_api_token: str | None = None
-_token_lock = threading.Lock()
-_devices_cache: list = []
-_devices_cache_ts: float = 0.0
-_devices_cache_lock = threading.Lock()
+_mqtt_client: mqtt.Client | None = None
 
 app = FastAPI()
 model = joblib.load("smart_air_model_v3.pkl")
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# ── DB ────────────────────────────────────────────────────────────────────────
 
-def get_token() -> str:
-    global _api_token
-    with _token_lock:
-        if _api_token is None:
-            _api_token = _login()
-        return _api_token
-
-
-def clear_token():
-    global _api_token
-    with _token_lock:
-        _api_token = None
-
-
-def _login():
-    res = requests.post(
-        f"{SERVER_API}/auth/login",
-        json={"email": AI_EMAIL, "password": AI_PASSWORD},
-        timeout=5,
+def db_conn():
+    return psycopg2.connect(
+        host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASSWORD,
     )
-    res.raise_for_status()
-    return res.json()["accessToken"]
 
 
-# ── Device list cache ─────────────────────────────────────────────────────────
-
-def _refresh_devices_cache(token):
-    global _devices_cache, _devices_cache_ts
-    res = requests.get(
-        f"{SERVER_API}/devices",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=5,
-    )
-    res.raise_for_status()
-    with _devices_cache_lock:
-        _devices_cache = res.json()
-        _devices_cache_ts = time.time()
+def get_auto_mode(device_id) -> bool:
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT auto_mode FROM devices WHERE id = %s", (device_id,))
+                row = cur.fetchone()
+        return bool(row[0]) if row else False
+    except Exception as e:
+        print(f"[{device_id}] get_auto_mode DB error: {e}", flush=True)
+        return False
 
 
-def get_auto_mode(token, device_id) -> bool:
-    with _devices_cache_lock:
-        age = time.time() - _devices_cache_ts
-        cached = list(_devices_cache)
-
-    if age > _DEVICES_CACHE_TTL:
-        try:
-            _refresh_devices_cache(token)
-            with _devices_cache_lock:
-                cached = list(_devices_cache)
-        except Exception as e:
-            print(f"[{device_id}] Device cache refresh failed: {e}", flush=True)
-
-    for device in cached:
-        if device.get("id") == device_id:
-            return bool(device.get("auto_mode", False))
-    return False
-
-
-# ── Relay control ─────────────────────────────────────────────────────────────
-
-def get_devices(token):
-    res = requests.get(
-        f"{SERVER_API}/devices",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=5,
-    )
-    res.raise_for_status()
-    return res.json()
+def log_action(device_id, relay, state, class_id, reason, sensor):
+    try:
+        with db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO ai_actions
+                        (device_id, relay, state, class_id, reason,
+                         temperature, humidity, co_ppm, no2_ppm)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        device_id, relay, state, class_id, reason,
+                        sensor.get("temperature"), sensor.get("humidity"),
+                        sensor.get("co_ppm"), sensor.get("no2_ppm"),
+                    ),
+                )
+    except Exception as e:
+        print(f"[{device_id}] log_action DB error: {e}", flush=True)
 
 
-def get_latest_telemetry(token, device_id):
-    res = requests.get(
-        f"{SERVER_API}/devices/{device_id}/telemetry?limit=1",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=5,
-    )
-    res.raise_for_status()
-    data = res.json()
-    if not isinstance(data, list) or not data:
-        return None
-    return data[0]
+# ── Relay control via MQTT ────────────────────────────────────────────────────
 
-
-def set_relay(token, device_id, channel, state):
-    res = requests.post(
-        f"{SERVER_API}/devices/{device_id}/relay/{channel}",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"state": bool(state)},
-        timeout=5,
-    )
-    res.raise_for_status()
-    return res.json()
+def publish_relay(device_id, channel, state):
+    client = _mqtt_client
+    if client is None:
+        print(f"[{device_id}] MQTT client not ready, cannot publish relay", flush=True)
+        return
+    command_id = str(uuid.uuid4())
+    payload = json.dumps({"command_id": command_id, "type": "relay_set", "relay": channel, "state": state})
+    client.publish(f"device/{device_id}/command", payload, qos=1)
 
 
 # ── Baseline persistence ──────────────────────────────────────────────────────
@@ -165,12 +112,6 @@ def get_baseline(device_id):
         if device_id not in baselines:
             baselines[device_id] = bm
         return baselines[device_id]
-
-
-def db_conn():
-    return psycopg2.connect(
-        host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASSWORD,
-    )
 
 
 def load_baseline_from_db(device_id):
@@ -257,6 +198,11 @@ def run_prediction(device_id, sensor):
     features = baseline.make_feature_vector(clean_sensor)
     X = pd.DataFrame([features], columns=FEATURE_COLS)
     class_id = int(model.predict(X)[0])
+
+    # Model v3 overweights no2_ppm — override to class 2 when cooling signal is clear
+    if class_id == 0 and features["delta_temp"] >= 8 and clean_sensor["co_ppm"] < 35 and clean_sensor["no2_ppm"] < 100:
+        class_id = 2
+
     try:
         result = decode_class(class_id)
     except (KeyError, ValueError):
@@ -272,10 +218,11 @@ def run_prediction(device_id, sensor):
         "light": result["light"],
         "buzzer": result["buzzer"],
         "features": features,
+        "sensor": clean_sensor,
     }
 
 
-def apply_control(token, device_id, ai_result):
+def apply_control(device_id, ai_result):
     if ai_result.get("status") == "calibrating":
         return
     if "error" in ai_result:
@@ -287,6 +234,8 @@ def apply_control(token, device_id, ai_result):
         "buzzer": bool(ai_result["buzzer"]),
     }
     class_id = ai_result.get("class_id", 0)
+    reason = ai_result.get("meaning", "unknown")
+    sensor = ai_result.get("sensor", {})
 
     with _state_lock:
         if class_id != 0:
@@ -307,18 +256,19 @@ def apply_control(token, device_id, ai_result):
             print(f"[{device_id}] Control unchanged, skip", flush=True)
             return
 
-    r1 = set_relay(token, device_id, 1, desired["fan"])
-    r2 = set_relay(token, device_id, 2, desired["light"])
-    r3 = set_relay(token, device_id, 3, desired["buzzer"])
+    relay_map = {"fan": 1, "light": 2, "buzzer": 3}
+    for name, channel in relay_map.items():
+        state = desired[name]
+        publish_relay(device_id, channel, state)
+        log_action(device_id, channel, state, class_id, reason, sensor)
 
     with _state_lock:
         last_control_by_device[device_id] = desired
 
-    print(f"[{device_id}] Control sent:", r1, r2, r3, flush=True)
+    print(f"[{device_id}] Control sent: {desired}", flush=True)
 
 
 def handle_telemetry(device_id, telemetry):
-    """Process a single telemetry reading from MQTT. Called from MQTT thread."""
     current_ts = telemetry.get("ts")
     last_ts = last_ts_by_device.get(device_id)
 
@@ -332,17 +282,11 @@ def handle_telemetry(device_id, telemetry):
     print(f"[{device_id}] Telemetry: {telemetry}", flush=True)
     print(f"[{device_id}] AI result: {ai_result}", flush=True)
 
-    try:
-        token = get_token()
-        if not get_auto_mode(token, device_id):
-            print(f"[{device_id}] auto_mode=false, skipping relay control", flush=True)
-            return
-        apply_control(token, device_id, ai_result)
-    except requests.exceptions.HTTPError as e:
-        print(f"[{device_id}] HTTP error in handle_telemetry: {e}", flush=True)
-        clear_token()
-    except Exception as e:
-        print(f"[{device_id}] Error in handle_telemetry: {e}", flush=True)
+    if not get_auto_mode(device_id):
+        print(f"[{device_id}] auto_mode=false, skipping relay control", flush=True)
+        return
+
+    apply_control(device_id, ai_result)
 
 
 # ── MQTT subscriber ───────────────────────────────────────────────────────────
@@ -357,13 +301,10 @@ def _on_connect(client, userdata, flags, reason_code, properties):
 
 def _on_message(client, userdata, msg):
     try:
-        # Topic pattern: device/<device_id>/telemetry
         parts = msg.topic.split("/")
         if len(parts) != 3:
             return
         device_id = parts[1]
-
-        import json
         telemetry = json.loads(msg.payload.decode("utf-8"))
         handle_telemetry(device_id, telemetry)
     except Exception as e:
@@ -371,6 +312,7 @@ def _on_message(client, userdata, msg):
 
 
 def start_mqtt_subscriber():
+    global _mqtt_client
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.on_connect = _on_connect
@@ -379,9 +321,11 @@ def start_mqtt_subscriber():
     while True:
         try:
             client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+            _mqtt_client = client
             client.loop_forever()
         except Exception as e:
             print(f"MQTT subscriber error: {e} — retrying in 5s", flush=True)
+            _mqtt_client = None
             time.sleep(5)
 
 
@@ -404,16 +348,9 @@ def predict(sensor: dict):
     ai_result = run_prediction(device_id, sensor)
 
     if "device_id" in sensor:
-        try:
-            token = get_token()
-            if get_auto_mode(token, device_id):
-                apply_control(token, device_id, ai_result)
-            else:
-                ai_result["control_skipped"] = "auto_mode is off for this device"
-        except requests.exceptions.HTTPError:
-            clear_token()
-            ai_result["control_error"] = "relay control failed (auth error)"
-        except Exception as e:
-            ai_result["control_error"] = str(e)
+        if get_auto_mode(device_id):
+            apply_control(device_id, ai_result)
+        else:
+            ai_result["control_skipped"] = "auto_mode is off for this device"
 
     return ai_result

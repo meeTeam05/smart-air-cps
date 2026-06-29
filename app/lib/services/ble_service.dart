@@ -125,7 +125,7 @@ class BleService {
 
     FlutterBluePlus.startScan(
       timeout: timeout,
-      // androidScanMode: AndroidScanMode.lowLatency, // uncomment for faster scan
+      androidScanMode: AndroidScanMode.lowLatency,
     );
 
     final sub = FlutterBluePlus.onScanResults.listen(

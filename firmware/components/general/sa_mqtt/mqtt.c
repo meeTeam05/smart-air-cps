@@ -717,7 +717,7 @@ static void mqtt_task(void *arg)
                         .qos = 1,
                         .retain = 1,
                     },
-                .keepalive = 60,
+                .keepalive = 15,
             },
         .network =
             {

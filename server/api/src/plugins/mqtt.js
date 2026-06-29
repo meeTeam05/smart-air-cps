@@ -9,7 +9,7 @@ import {
     handleOtaProgress,
 } from '../services/mqtt-handlers.js';
 import { normalizeDeviceId } from '../utils/device-id.js';
-import { ensureBridgeUser } from '../services/emqx.js';
+import { ensureBridgeUser, ensureAiUser } from '../services/emqx.js';
 import { config } from '../config.js';
 
 const SUBSCRIPTIONS = Object.freeze([
@@ -92,6 +92,7 @@ async function mqttPlugin(fastify) {
         while (!closed) {
             try {
                 await ensureBridgeUser();
+                await ensureAiUser();
                 if (!closed && !connectingStarted) {
                     connectingStarted = true;
                     client.connect();
