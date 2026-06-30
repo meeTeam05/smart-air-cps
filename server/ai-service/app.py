@@ -28,7 +28,6 @@ if not MQTT_USERNAME or not MQTT_PASSWORD:
 CONFIRM_REQUIRED = 3
 
 warning_count_by_device = {}
-last_control_by_device = {}
 baselines = {}
 last_ts_by_device = {}
 
@@ -251,19 +250,11 @@ def apply_control(device_id, ai_result):
         )
         return
 
-    with _state_lock:
-        if last_control_by_device.get(device_id) == desired:
-            print(f"[{device_id}] Control unchanged, skip", flush=True)
-            return
-
     relay_map = {"fan": 1, "light": 2, "buzzer": 3}
     for name, channel in relay_map.items():
         state = desired[name]
         publish_relay(device_id, channel, state)
         log_action(device_id, channel, state, class_id, reason, sensor)
-
-    with _state_lock:
-        last_control_by_device[device_id] = desired
 
     print(f"[{device_id}] Control sent: {desired}", flush=True)
 

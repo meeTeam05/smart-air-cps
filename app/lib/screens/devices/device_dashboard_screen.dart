@@ -22,6 +22,7 @@ import '../../widgets/atoms/card.dart';
 
 const _commandPendingUiTimeout = Duration(seconds: 5);
 const _shadowRefreshGrace = Duration(seconds: 1);
+const _shadowHardTimeout = Duration(seconds: 10);
 
 enum _PendingControlKind { mode, relay }
 
@@ -47,6 +48,7 @@ class _PendingControlAction {
   final bool? expectedRelayState;
   Timer? queueTimer;
   Timer? shadowRefreshTimer;
+  Timer? hardTimeoutTimer;
   bool queuedNoticeShown = false;
 }
 
@@ -558,6 +560,7 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
   void _cancelPendingAction(_PendingControlAction? action) {
     action?.queueTimer?.cancel();
     action?.shadowRefreshTimer?.cancel();
+    action?.hardTimeoutTimer?.cancel();
   }
 
   void _trackPendingAction(_PendingControlAction action) {
@@ -623,9 +626,14 @@ class _DeviceDashboardScreenState extends ConsumerState<DeviceDashboardScreen> {
       final refreshedShadow =
           ref.read(shadowProvider(widget.deviceId)).valueOrNull;
       if (refreshedShadow == null) return;
-      if (!_applyShadowResolution(refreshedShadow, action)) {
+      if (_applyShadowResolution(refreshedShadow, action)) return;
+      // Shadow not yet updated — keep loading and let SSE resolve it.
+      // Hard timeout clears loading if firmware never confirms.
+      action.hardTimeoutTimer?.cancel();
+      action.hardTimeoutTimer = Timer(_shadowHardTimeout, () {
+        if (!mounted || !_matchesCurrentPendingAction(action)) return;
         _clearPendingAction(action);
-      }
+      });
     });
   }
 
