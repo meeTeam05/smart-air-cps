@@ -23,12 +23,39 @@ RESET_DEVICE_ID="dc:b4:d9:13:ed:8c"
 
 usage() {
     printf 'Usage: %s <scenario>\n' "$(basename "$0")"
-    printf 'Scenarios: gas-warning | cooling | danger | reset\n'
+    printf 'Scenarios: gas-warning | cooling | danger | reset | calibrate\n'
     printf 'Example:   %s gas-warning\n' "$(basename "$0")"
     exit 2
 }
 
 [[ $# -eq 1 ]] || usage
+
+# calibrate — send 30 normal samples so baseline gets saved to DB
+if [[ "$1" == "calibrate" ]]; then
+    if [[ "$(service_state "$AI_SERVICE")" != "running" ]]; then
+        usage_error "AI container '$AI_CONTAINER' is not running"
+    fi
+    CALIB_PAYLOAD=$(printf '{"device_id":"%s","temperature":32.8,"humidity":59.0,"co_ppm":1.5,"no2_ppm":0.02}' "$RESET_DEVICE_ID")
+    print_section "Calibrate — nạp 30 mẫu bình thường"
+    info "device : $RESET_DEVICE_ID"
+    info "values : temp=32.8  hum=59.0  co=1.5  no2=0.02"
+    printf '\n'
+    for i in $(seq 1 30); do
+        RESULT=$(docker exec "$AI_CONTAINER" python3 -c "
+import requests, json, sys
+r = requests.post('http://localhost:8000/predict', json=json.loads(sys.argv[1]), timeout=10)
+d = r.json()
+if d.get('status') == 'calibrating':
+    print('calibrating %d/%d' % (d.get('samples',0), d.get('required',30)))
+else:
+    print('done  class=%s  meaning=%s' % (d.get('class_id','?'), d.get('meaning','?')))
+" "$CALIB_PAYLOAD")
+        printf '  [%2d/30] %s\n' "$i" "$RESULT"
+    done
+    printf '\n'
+    info "baseline saved to DB — future container restarts will skip calibration"
+    exit 0
+fi
 
 # Handle reset command separately — no scenario file needed
 if [[ "$1" == "reset" ]]; then
