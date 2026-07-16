@@ -20,6 +20,7 @@ Devices ship with BLE-based Wi-Fi provisioning and finish setup through a local 
 - **Server**: Fastify API with PostgreSQL/TimescaleDB, Redis, and EMQX in Docker Compose; Nginx + Cloudflare Tunnel for public ingress; per-device MQTT credentials provisioned through the API; OTA artifact hosting.
 - **Realtime**: Live device status, shadow, telemetry, OTA progress, and command updates over Server-Sent Events; REST remains canonical for snapshots, history, replay, and command authorization.
 - **App** (Flutter + Riverpod): JWT auth with refresh-token rotation in secure storage, 5-step BLE provisioning, multi-home/room management with member invites, device dashboard with relay and device-mode controls, real-time sparkline charts, command history, sensor calibration wizard, OTA screen, in-app notifications, and adaptive light/dark theme.
+- **Unity dashboard**: REST-authenticated desktop visualization for device shadow data, sensor readings, relay state, and real-time charts.
 
 ## Hardware
 
@@ -72,6 +73,10 @@ Devices ship with BLE-based Wi-Fi provisioning and finish setup through a local 
   <img src="assets/app/app-3.gif" alt="App Demo 3" width="23%">
   <img src="assets/app/app-4.gif" alt="App Demo 4" width="23%">
 </p>
+
+## Unity Dashboard
+
+The Unity visualization project lives in [`unity-dashboard/`](unity-dashboard/). See its [setup guide](unity-dashboard/README.md) for the required Unity version, EasyChart dependency, backend configuration, and run instructions.
 
 ## Contributing
 

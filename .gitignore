@@ -77,3 +77,19 @@ scripts/ddns-cloudflare.sh
 .sisyphus/
 .beads/
 .mnhat/
+
+# Unity dashboard generated files
+unity-dashboard/[Ll]ibrary/
+unity-dashboard/[Tt]emp/
+unity-dashboard/[Oo]bj/
+unity-dashboard/[Ll]ogs/
+unity-dashboard/[Uu]ser[Ss]ettings/
+unity-dashboard/[Mm]emoryCaptures/
+unity-dashboard/[Bb]uild/
+unity-dashboard/[Bb]uilds/
+unity-dashboard/.vs/
+unity-dashboard/.vscode/
+unity-dashboard/*.csproj
+unity-dashboard/*.sln
+unity-dashboard/*.suo
+unity-dashboard/*.user
